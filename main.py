@@ -1,6 +1,7 @@
 import pandas as pd
 
 prices_df = pd.read_csv("./car_prices.csv")
+prices_df = prices_df.drop(["trim", "transmission", "vin", "color", "interior"], axis=1)
 prices_df = prices_df.dropna()
 
 # print(prices_df.info())
