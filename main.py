@@ -10,6 +10,11 @@ canada_codes = {
 
 prices_df = prices_df[~prices_df["state"].isin(canada_codes)]
 
+prices_df["make"] = prices_df["make"].str.lower()
+prices_df["model"] = prices_df["model"].str.lower()
+prices_df["body"] = prices_df["body"].str.lower()
+prices_df["seller"] = prices_df["seller"].str.lower()
+
 # print(prices_df.info())
 # print(prices_df.describe())
 # print(prices_df)
