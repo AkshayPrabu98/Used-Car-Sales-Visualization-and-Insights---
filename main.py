@@ -4,6 +4,12 @@ prices_df = pd.read_csv("./car_prices.csv")
 prices_df = prices_df.drop(["trim", "transmission", "vin", "color", "interior"], axis=1)
 prices_df = prices_df.dropna()
 
+canada_codes = {
+    "ab", "bc", "mb", "nb", "nl", "ns", "on", "pe", "qc", "sk", "nt", "nu", "yt"
+}
+
+prices_df = prices_df[~prices_df["state"].isin(canada_codes)]
+
 # print(prices_df.info())
 # print(prices_df.describe())
 # print(prices_df)
