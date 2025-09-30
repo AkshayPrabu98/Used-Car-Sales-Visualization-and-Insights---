@@ -1,3 +1,4 @@
+import seaborn as sns
 import matplotlib.pyplot as plt
 from datetime import datetime
 import pandas as pd
@@ -50,74 +51,85 @@ rental_keywords = [
 
 
 def is_rental(line):
-    text = line.lower()
+    if pd.isna(line):
+        return False
+    text = line.lower().strip()
     return any(keyword in text for keyword in rental_keywords)
 
 
-prices_df["isrental"] = prices_df['seller'].apply(is_rental)
-# print(grouped_df.info())
-# print(grouped_df.head())
+prices_df["is_rental"] = prices_df['seller'].apply(is_rental)
+# print(prices_df.info())
+# print(prices_df.head())
 
-prices_df["saleyear"] = prices_df["saledate"].dt.year
+prices_df["sale_year"] = prices_df["saledate"].dt.year
 
-grouped_df = prices_df.groupby(
-    ["saleyear", "make", "model"], as_index=False
-).agg(
-    avgprice=("sellingprice", "mean"),
-    salesvolume=("sellingprice", "count")
-)
-# print(grouped_df.info())
-# print(grouped_df.head())
-
-# Compute total sales volume per make+model across all years
-volume_df = prices_df.groupby(["make", "model"], as_index=False).agg(
-    totalvolume=("sellingprice", "count")
+# Step 1: Compute total sales volume per year, make, model
+volume_df = prices_df.groupby(["year", "make", "model"], as_index=False).agg(
+    total_volume=("sellingprice", "count")
 )
 
-# Compute quartiles
-q1 = volume_df["totalvolume"].quantile(0.25)
-q2 = volume_df["totalvolume"].quantile(0.5)
-q3 = volume_df["totalvolume"].quantile(0.75)
+# Step 2: Define high-volume threshold (top 25%)
+threshold = volume_df["total_volume"].quantile(0.75)
+high_volume_models = volume_df[volume_df["total_volume"] > threshold]
 
-# Define filters for 2nd and 3rd quartiles
-second_quartile = volume_df[(volume_df["totalvolume"] > q1) & (
-    volume_df["totalvolume"] <= q2)]
-third_quartile = volume_df[(volume_df["totalvolume"] > q2) & (
-    volume_df["totalvolume"] <= q3)]
+# Step 3: Filter main dataframe
+filtered_df = prices_df.merge(
+    high_volume_models[["year", "make", "model"]],
+    on=["year", "make", "model"],
+    how="inner"
+)
 
+# Step 4: Group by sale_year, year, make, model and compute avg_price
+grouped_df = filtered_df.groupby(
+    ["sale_year", "year", "make", "model"], as_index=False
+).agg(avg_price=("sellingprice", "mean"))
 
-def plot_quartile(quartile_df, title):
-    # Keep only the models in this quartile
-    df = prices_df.merge(
-        quartile_df[["make", "model"]],
-        on=["make", "model"],
-        how="inner"
-    )
-    # Group by year, make, model
-    grouped_df = df.groupby(
-        ["saleyear", "make", "model"], as_index=False
-    ).agg(avgprice=("sellingprice", "mean"))
+# Step 5: Pivot for plotting
+pivot_df = grouped_df.pivot_table(
+    index="sale_year",
+    columns=["year", "make", "model"],
+    values="avg_price"
+)
 
-    # Pivot for plotting
-    pivot_df = grouped_df.pivot_table(
-        index="saleyear",
-        columns=["make", "model"],
-        values="avgprice"
-    )
+# Step 6: Keep only significant upward trends (>=10% increase)
+growth_threshold = 0.20  # 10%
+growth_dict = {}
+significant_cols = []
 
-    # Plot
-    plt.figure(figsize=(14, 8))
-    for col in pivot_df.columns:
-        plt.plot(pivot_df.index, pivot_df[col], alpha=0.7)
-    plt.xlabel("Year")
-    plt.ylabel("Average Price")
-    plt.title(title)
-    plt.grid(True)
-    plt.show()
+for col in pivot_df.columns:
+    series = pivot_df[col].dropna()
+    if series.size > 1:
+        first, last = series.iloc[0], series.iloc[-1]
+        growth = (last - first) / first
+        if growth >= growth_threshold:
+            significant_cols.append(col)
+            growth_dict[col] = growth
 
+pivot_df = pivot_df[significant_cols]
 
-# Plot each quartile separately
-plot_quartile(second_quartile,
-              "Average Price Trends: 2nd Quartile of Sales Volume")
-plot_quartile(third_quartile,
-              "Average Price Trends: 3rd Quartile of Sales Volume")
+# Step 7: Highlight top 10 models by total growth
+top_cols = sorted(growth_dict, key=growth_dict.get, reverse=True)[:10]
+others_cols = [col for col in pivot_df.columns if col not in top_cols]
+
+# Step 8: Plot
+plt.figure(figsize=(14, 8))
+palette = sns.color_palette("tab20", n_colors=len(top_cols))
+
+# Plot top models with colors
+for i, col in enumerate(top_cols):
+    plt.plot(pivot_df.index, pivot_df[col], alpha=0.9, linewidth=2,
+             color=palette[i], label=f"{col[1]} {col[2]} ({col[0]})")
+
+# Plot remaining models as faint gray
+for col in others_cols:
+    plt.plot(pivot_df.index, pivot_df[col],
+             alpha=0.3, linewidth=1, color="gray", zorder=0)
+
+plt.xlabel("Sale Year")
+plt.ylabel("Average Price")
+plt.title(
+    f"Average Price Trends for Top 25% High-Volume Models (≥{int(growth_threshold*100)}% Increase)")
+plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
