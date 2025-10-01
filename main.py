@@ -63,73 +63,57 @@ prices_df["is_rental"] = prices_df['seller'].apply(is_rental)
 
 prices_df["sale_year"] = prices_df["saledate"].dt.year
 
-# Step 1: Compute total sales volume per year, make, model
-volume_df = prices_df.groupby(["year", "make", "model"], as_index=False).agg(
+# Step 1: Filter for sale_year = 2015
+df_2015 = prices_df[prices_df["sale_year"] == 2015]
+
+# Step 2: Group by year, make, model
+stats_2015 = df_2015.groupby(["year", "make", "model"], as_index=False).agg(
+    avg_price=("sellingprice", "mean"),
     total_volume=("sellingprice", "count")
 )
 
-# Step 2: Define high-volume threshold (top 25%)
-threshold = volume_df["total_volume"].quantile(0.75)
-high_volume_models = volume_df[volume_df["total_volume"] > threshold]
+# Step 3: Sort by volume (optional, for readability)
+stats_2015 = stats_2015.sort_values(
+    "total_volume", ascending=False).head(20)  # top 20
 
-# Step 3: Filter main dataframe
-filtered_df = prices_df.merge(
-    high_volume_models[["year", "make", "model"]],
-    on=["year", "make", "model"],
-    how="inner"
+# Step 4: Create combined bar + line plot
+fig, ax1 = plt.subplots(figsize=(14, 8))
+
+# Bar plot (sales volume)
+ax1.bar(
+    stats_2015["year"].astype(str) + " " +
+    stats_2015["make"] + " " + stats_2015["model"],
+    stats_2015["total_volume"],
+    color="skyblue",
+    alpha=0.7,
+    label="Sales Volume"
 )
+ax1.set_ylabel("Sales Volume", color="blue")
+ax1.tick_params(axis="y", labelcolor="blue")
 
-# Step 4: Group by sale_year, year, make, model and compute avg_price
-grouped_df = filtered_df.groupby(
-    ["sale_year", "year", "make", "model"], as_index=False
-).agg(avg_price=("sellingprice", "mean"))
-
-# Step 5: Pivot for plotting
-pivot_df = grouped_df.pivot_table(
-    index="sale_year",
-    columns=["year", "make", "model"],
-    values="avg_price"
+# Create secondary axis for average price
+ax2 = ax1.twinx()
+ax2.plot(
+    stats_2015["year"].astype(str) + " " +
+    stats_2015["make"] + " " + stats_2015["model"],
+    stats_2015["avg_price"],
+    color="red",
+    marker="o",
+    linewidth=2,
+    label="Average Price"
 )
+ax2.set_ylabel("Average Price (USD)", color="red")
+ax2.tick_params(axis="y", labelcolor="red")
 
-# Step 6: Keep only significant upward trends (>=10% increase)
-growth_threshold = 0.20  # 10%
-growth_dict = {}
-significant_cols = []
+# Labels and formatting
+plt.title("2015 Sales Volume (Bar) and Average Price (Line) by Year + Make + Model")
+ax1.set_xticklabels(stats_2015["year"].astype(
+    str) + " " + stats_2015["make"] + " " + stats_2015["model"], rotation=90)
 
-for col in pivot_df.columns:
-    series = pivot_df[col].dropna()
-    if series.size > 1:
-        first, last = series.iloc[0], series.iloc[-1]
-        growth = (last - first) / first
-        if growth >= growth_threshold:
-            significant_cols.append(col)
-            growth_dict[col] = growth
+# Combine legends
+lines, labels = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines + lines2, labels + labels2, loc="upper right")
 
-pivot_df = pivot_df[significant_cols]
-
-# Step 7: Highlight top 10 models by total growth
-top_cols = sorted(growth_dict, key=growth_dict.get, reverse=True)[:10]
-others_cols = [col for col in pivot_df.columns if col not in top_cols]
-
-# Step 8: Plot
-plt.figure(figsize=(14, 8))
-palette = sns.color_palette("tab20", n_colors=len(top_cols))
-
-# Plot top models with colors
-for i, col in enumerate(top_cols):
-    plt.plot(pivot_df.index, pivot_df[col], alpha=0.9, linewidth=2,
-             color=palette[i], label=f"{col[1]} {col[2]} ({col[0]})")
-
-# Plot remaining models as faint gray
-for col in others_cols:
-    plt.plot(pivot_df.index, pivot_df[col],
-             alpha=0.3, linewidth=1, color="gray", zorder=0)
-
-plt.xlabel("Sale Year")
-plt.ylabel("Average Price")
-plt.title(
-    f"Average Price Trends for Top 25% High-Volume Models (≥{int(growth_threshold*100)}% Increase)")
-plt.legend(bbox_to_anchor=(1.05, 1), loc="upper left", fontsize="small")
-plt.grid(True)
 plt.tight_layout()
 plt.show()
