@@ -102,7 +102,7 @@ ax2.tick_params(axis="y", labelcolor="red")
 
 # Fix x-axis labels
 ax1.set_xticks(range(len(df_2015_stats)))
-ax1.set_xticklabels(labels, rotation=90)
+ax1.set_xticklabels(labels, rotation=45, ha='right')
 
 # Title
 plt.title("2015 Sales Volume (Bar) and Average Price (Line) by Year + Make + Model")
