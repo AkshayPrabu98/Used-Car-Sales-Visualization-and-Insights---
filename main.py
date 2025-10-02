@@ -1,48 +1,17 @@
-import seaborn as sns
-import matplotlib.pyplot as plt
 from datetime import datetime
+import matplotlib.pyplot as plt
 import pandas as pd
-
-prices_df = pd.read_csv("./car_prices.csv")
-prices_df = prices_df.drop(
-    ["trim", "transmission", "vin", "color", "interior"], axis=1)
-prices_df = prices_df.dropna()
 
 
 def parse_js_date(date_str):
     try:
-        # Strip the timezone name in parentheses, keep the GMT offset
-        date_str = " ".join(date_str.split(" ")[:6])
+        date_str = " ".join(date_str.split(" ")[:6])  # strip timezone name
         return datetime.strptime(date_str, "%a %b %d %Y %H:%M:%S GMT%z")
     except Exception:
         return pd.NaT
 
 
-prices_df["saledate"] = prices_df["saledate"].apply(parse_js_date)
-prices_df["saledate"] = pd.to_datetime(
-    prices_df["saledate"], utc=True, errors="coerce")
-prices_df = prices_df.dropna(subset=["saledate"])
-prices_df["saledate"] = prices_df["saledate"].dt.tz_localize(None)
-
-canada_codes = {
-    "ab", "bc", "mb", "nb", "nl", "ns", "on", "pe", "qc", "sk", "nt", "nu", "yt"
-}
-
-prices_df = prices_df[~prices_df["state"].isin(canada_codes)]
-
-prices_df["make"] = prices_df["make"].str.lower()
-prices_df["model"] = prices_df["model"].str.lower()
-prices_df["body"] = prices_df["body"].str.lower()
-prices_df["seller"] = prices_df["seller"].str.lower()
-
-# print(prices_df.info())
-# print(prices_df.describe())
-# print(prices_df)
-# print(prices_df["state"].unique())
-# for val in prices_df['seller'].unique():
-#    print(val)
-
-# Define keywords that identify rental companies
+# Rental keywords
 rental_keywords = [
     "rent", "rental", "rac", "u-save", "u save",
     "enterprise", "hertz", "avis", "budget", "thrifty",
@@ -57,33 +26,60 @@ def is_rental(line):
     return any(keyword in text for keyword in rental_keywords)
 
 
-prices_df["is_rental"] = prices_df['seller'].apply(is_rental)
-# print(prices_df.info())
-# print(prices_df.head())
+# Load dataset
+df_prices = pd.read_csv("./car_prices.csv")
 
-prices_df["sale_year"] = prices_df["saledate"].dt.year
+# Drop unused columns
+df_prices = df_prices.drop(
+    ["trim", "transmission", "vin", "color", "interior"], axis=1
+).dropna()
 
-# Step 1: Filter for sale_year = 2015
-df_2015 = prices_df[prices_df["sale_year"] == 2015]
+# Convert sale date to datetime
+df_prices["saledate"] = df_prices["saledate"].apply(parse_js_date)
+df_prices["saledate"] = pd.to_datetime(
+    df_prices["saledate"], utc=True, errors="coerce")
+df_prices = df_prices.dropna(subset=["saledate"])
+df_prices["saledate"] = df_prices["saledate"].dt.tz_localize(None)
 
-# Step 2: Group by year, make, model
-stats_2015 = df_2015.groupby(["year", "make", "model"], as_index=False).agg(
+# Drop Canadian provinces
+canada_codes = {"ab", "bc", "mb", "nb", "nl",
+                "ns", "on", "pe", "qc", "sk", "nt", "nu", "yt"}
+df_prices = df_prices[~df_prices["state"].isin(canada_codes)]
+
+# Normalize strings
+for col in ["make", "model", "body", "seller"]:
+    df_prices[col] = df_prices[col].str.lower()
+
+# Identify rental companies
+df_prices["is_rental"] = df_prices['seller'].apply(is_rental)
+
+# Add sale year
+df_prices["sale_year"] = df_prices["saledate"].dt.year
+
+# Filter for 2015
+df_2015 = df_prices[df_prices["sale_year"] == 2015]
+
+# Aggregate stats by (year, make, model)
+df_2015_stats = df_2015.groupby(["year", "make", "model"], as_index=False).agg(
     avg_price=("sellingprice", "mean"),
     total_volume=("sellingprice", "count")
 )
 
-# Step 3: Sort by volume (optional, for readability)
-stats_2015 = stats_2015.sort_values(
-    "total_volume", ascending=False).head(20)  # top 20
+# Sort by sales volume and keep top 20
+df_2015_stats = df_2015_stats.sort_values(
+    "total_volume", ascending=False).head(20)
 
-# Step 4: Create combined bar + line plot
+# Labels for x-axis
+labels = df_2015_stats["year"].astype(
+    str) + " " + df_2015_stats["make"] + " " + df_2015_stats["model"]
+
+# --- Plot ---
 fig, ax1 = plt.subplots(figsize=(14, 8))
 
 # Bar plot (sales volume)
 ax1.bar(
-    stats_2015["year"].astype(str) + " " +
-    stats_2015["make"] + " " + stats_2015["model"],
-    stats_2015["total_volume"],
+    range(len(df_2015_stats)),
+    df_2015_stats["total_volume"],
     color="skyblue",
     alpha=0.7,
     label="Sales Volume"
@@ -91,12 +87,11 @@ ax1.bar(
 ax1.set_ylabel("Sales Volume", color="blue")
 ax1.tick_params(axis="y", labelcolor="blue")
 
-# Create secondary axis for average price
+# Secondary axis for average price
 ax2 = ax1.twinx()
 ax2.plot(
-    stats_2015["year"].astype(str) + " " +
-    stats_2015["make"] + " " + stats_2015["model"],
-    stats_2015["avg_price"],
+    range(len(df_2015_stats)),
+    df_2015_stats["avg_price"],
     color="red",
     marker="o",
     linewidth=2,
@@ -105,15 +100,17 @@ ax2.plot(
 ax2.set_ylabel("Average Price (USD)", color="red")
 ax2.tick_params(axis="y", labelcolor="red")
 
-# Labels and formatting
+# Fix x-axis labels
+ax1.set_xticks(range(len(df_2015_stats)))
+ax1.set_xticklabels(labels, rotation=90)
+
+# Title
 plt.title("2015 Sales Volume (Bar) and Average Price (Line) by Year + Make + Model")
-ax1.set_xticklabels(stats_2015["year"].astype(
-    str) + " " + stats_2015["make"] + " " + stats_2015["model"], rotation=90)
 
 # Combine legends
-lines, labels = ax1.get_legend_handles_labels()
-lines2, labels2 = ax2.get_legend_handles_labels()
-ax1.legend(lines + lines2, labels + labels2, loc="upper right")
+lines, labels_1 = ax1.get_legend_handles_labels()
+lines2, labels_2 = ax2.get_legend_handles_labels()
+ax1.legend(lines + lines2, labels_1 + labels_2, loc="upper right")
 
 plt.tight_layout()
 plt.show()
